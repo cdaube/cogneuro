@@ -1,39 +1,7 @@
-# CogNeuro Figures + Interactive Explorer
+# CogNeuro Explorer
 
-## Generate static figures/animation (memory-aware)
+Interactive browser of cognitive neuroscience and neuroimaging abstracts (1980-2025).
 
-```bash
-uv run python scripts/make_figures.py
-```
+**Explore the live map here: [https://cdaube.github.io/cogneuro/](https://cdaube.github.io/cogneuro/)**
 
-On lower-memory machines (e.g. 18 GB), this now auto-switches to lighter settings.
-
-## Generate interactive browser explorer
-
-```bash
-uv run python scripts/make_interactive_explorer.py
-```
-
-Output:
-
-- `figures/umap_explorer.html`
-
-Features:
-
-- Hover for quick metadata
-- Click a point to pin full details + abstract in a side panel
-- Links to PubMed (`pmid`) and DOI (when available)
-
-## Open in browser
-
-From the project root:
-
-```bash
-uv run python -m http.server 8000
-```
-
-Then open:
-
-- `http://localhost:8000/figures/umap_explorer.html`
-
-This uses only cached local files in `data/` (no scraping, no re-embedding).
+*This tool uses LLM embeddings and UMAP to visualize the semantic landscape of the field across recording modalities and time.*
