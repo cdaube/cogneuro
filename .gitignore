@@ -1,0 +1,7 @@
+data/
+figures/
+.DS_Store
+scripts/plot3timeseriesAndpower.py
+scripts/plotEnvelope.py
+__pycache__/
+*.pyc
