@@ -4,4 +4,6 @@ Interactive browser of cognitive neuroscience and neuroimaging abstracts (1980-2
 
 **Explore the live map here: [https://cdaube.github.io/cogneuro/](https://cdaube.github.io/cogneuro/)**
 
-*This tool uses LLM embeddings and UMAP to visualize the semantic landscape of the field across recording modalities and time.*
+**Glasgow Research Explorer: [https://cdaube.github.io/cogneuro/glasgow_explorer.html](https://cdaube.github.io/cogneuro/glasgow_explorer.html)**
+
+*These tools use LLM embeddings and UMAP to visualize the semantic landscape of research abstracts. The Glasgow explorer maps ~2900 abstracts from University of Glasgow researchers, coloured by school, college, year, or citation network.*
