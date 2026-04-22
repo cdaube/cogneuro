@@ -14,6 +14,7 @@ Usage:
 
 import json
 import os
+import colorsys
 
 import numpy as np
 import pandas as pd
@@ -188,6 +189,47 @@ def rgb_to_css(rgb):
     return f"rgb({int(rgb[0] * 255)},{int(rgb[1] * 255)},{int(rgb[2] * 255)})"
 
 
+def perceptual_palette_sort_key(rgb):
+    hue, sat, _ = colorsys.rgb_to_hsv(*rgb.tolist())
+    brightness = float(_rgb_to_lab(np.array([rgb]))[0, 0])
+    chroma = float(np.max(rgb) - np.min(rgb))
+
+    if sat < 0.12 or chroma < 0.08:
+        return (11, brightness, 0.0, -sat)
+
+    deg = hue * 360
+    if deg < 15 or deg >= 345:
+        bucket = 0   # red
+    elif deg < 45:
+        bucket = 1   # orange
+    elif deg < 75:
+        bucket = 2   # yellow
+    elif deg < 105:
+        bucket = 3   # yellow-green
+    elif deg < 150:
+        bucket = 4   # green
+    elif deg < 185:
+        bucket = 5   # teal
+    elif deg < 210:
+        bucket = 6   # cyan
+    elif deg < 250:
+        bucket = 7   # blue
+    elif deg < 280:
+        bucket = 8   # indigo
+    elif deg < 315:
+        bucket = 9   # violet
+    else:
+        bucket = 10  # magenta / pink
+
+    return (bucket, brightness, deg, -sat)
+
+
+def build_picker_palette():
+    palette = distinguishable_colors(100, bg=np.array([[1, 1, 1], [0, 0, 0]]))
+    ordered = sorted(palette, key=perceptual_palette_sort_key)
+    return [rgb_to_css(rgb) for rgb in ordered]
+
+
 def build_school_color_map():
     palette_100 = distinguishable_colors(100, bg=np.array([[1, 1, 1], [0, 0, 0]]))
     extra_blue_hues = [rgb_to_css(palette_100[idx]) for idx in BLUE_PALETTE_EXTRA_INDICES]
@@ -278,6 +320,7 @@ def main():
     # 2. Build colour maps
     # ------------------------------------------------------------------
     school_color_map = build_school_color_map()
+    picker_palette = build_picker_palette()
 
     # ------------------------------------------------------------------
     # 3. Prepare JSON data blob (one row per paper)
@@ -312,6 +355,7 @@ def main():
         edges_json=edges_json,
         school_color_map_json=json.dumps(school_color_map, separators=(",", ":")),
         school_order_json=json.dumps(SCHOOL_ORDER, separators=(",", ":")),
+        school_picker_colors_json=json.dumps(picker_palette, separators=(",", ":")),
         college_color_map_json=json.dumps(COLLEGE_COLORS, separators=(",", ":")),
         n_papers=len(df),
     )
@@ -323,7 +367,8 @@ def main():
 
 
 def _build_html(*, data_json, edges_json, school_color_map_json,
-                school_order_json, college_color_map_json, n_papers):
+                school_order_json, school_picker_colors_json,
+                college_color_map_json, n_papers):
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -365,10 +410,29 @@ a:hover{{text-decoration:underline}}
 /* legend at bottom-left of plot */
 #colour-legend{{position:absolute;bottom:12px;left:12px;background:rgba(255,255,255,0.92);border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;max-height:50vh;overflow-y:auto;font-size:11px;z-index:10;max-width:260px}}
 #colour-legend .leg-title{{font-weight:600;margin-bottom:6px;font-size:12px;color:#1e293b}}
-.leg-item{{display:flex;align-items:center;gap:6px;margin-bottom:3px;cursor:pointer;opacity:0.9}}
+.leg-item{{display:flex;align-items:center;gap:6px;margin-bottom:3px;opacity:0.9}}
 .leg-item:hover{{opacity:1}}
 .leg-swatch{{width:12px;height:12px;border-radius:3px;flex-shrink:0}}
 .leg-label{{color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.leg-label-btn{{border:none;background:none;padding:0;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:inherit;text-align:left;cursor:pointer}}
+.leg-label-btn:hover{{color:#0f172a;text-decoration:underline}}
+
+/* palette modal */
+.palette-backdrop{{position:fixed;inset:0;background:rgba(15,23,42,0.34);display:none;align-items:center;justify-content:center;z-index:40;padding:18px}}
+.palette-backdrop.open{{display:flex}}
+.palette-dialog{{width:min(920px,100%);max-height:min(82vh,760px);overflow:hidden;background:#ffffff;border-radius:16px;border:1px solid #cbd5e1;box-shadow:0 25px 60px rgba(15,23,42,0.22);display:flex;flex-direction:column}}
+.palette-head{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px 12px;border-bottom:1px solid #e2e8f0}}
+.palette-head h3{{margin:0;font-size:16px;color:#0f172a}}
+.palette-sub{{font-size:12px;color:#64748b;margin-top:4px}}
+.palette-actions{{display:flex;gap:8px;align-items:center}}
+.palette-body{{padding:14px 18px 18px;overflow:auto}}
+.palette-current{{display:flex;align-items:center;gap:10px;font-size:13px;color:#334155;margin-bottom:12px}}
+.palette-current-swatch{{width:18px;height:18px;border-radius:4px;border:1px solid rgba(15,23,42,0.18);flex-shrink:0}}
+.palette-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(48px,1fr));gap:8px}}
+.palette-chip{{border:1px solid rgba(15,23,42,0.12);border-radius:10px;height:44px;cursor:pointer;position:relative;transition:transform 120ms ease,border-color 120ms ease,box-shadow 120ms ease}}
+.palette-chip:hover{{transform:translateY(-1px);border-color:#94a3b8}}
+.palette-chip.active{{border-color:#0f172a;box-shadow:0 0 0 2px rgba(15,23,42,0.15)}}
+.palette-chip-label{{position:absolute;right:5px;bottom:4px;font-size:9px;color:rgba(255,255,255,0.92);text-shadow:0 1px 2px rgba(15,23,42,0.7)}}
 </style>
 </head>
 <body>
@@ -397,17 +461,44 @@ a:hover{{text-decoration:underline}}
     </div>
   </aside>
 </div>
+<div id="palette-backdrop" class="palette-backdrop" aria-hidden="true">
+  <div class="palette-dialog" role="dialog" aria-modal="true" aria-labelledby="palette-title">
+    <div class="palette-head">
+      <div>
+        <h3 id="palette-title">Choose School Colour</h3>
+        <div id="palette-subtitle" class="palette-sub">Select one of the first 100 distinguishable colours, ordered by hue family and brightness.</div>
+      </div>
+      <div class="palette-actions">
+        <button id="palette-reset" class="btn" type="button">Reset School</button>
+        <button id="palette-reset-all" class="btn" type="button">Reset All</button>
+        <button id="palette-close" class="btn" type="button">Close</button>
+      </div>
+    </div>
+    <div class="palette-body">
+      <div class="palette-current">
+        <span id="palette-current-swatch" class="palette-current-swatch"></span>
+        <span id="palette-current-label"></span>
+      </div>
+      <div id="palette-grid" class="palette-grid"></div>
+    </div>
+  </div>
+</div>
 
 <script>
 // ── data ──────────────────────────────────────────────────────────
 const DATA = {data_json};
 const EDGES = {edges_json};
-const SCHOOL_COLORS = {school_color_map_json};
+const DEFAULT_SCHOOL_COLORS = {school_color_map_json};
+const SCHOOL_COLORS = {{ ...DEFAULT_SCHOOL_COLORS }};
 const SCHOOL_ORDER = {school_order_json};
+const SCHOOL_PICKER_COLORS = {school_picker_colors_json};
 const COLLEGE_COLORS = {college_color_map_json};
 const N = DATA.length;
 const presentSchools = new Set(DATA.map(d => d.school).filter(Boolean));
 const presentColleges = new Set(DATA.map(d => d.college).filter(Boolean));
+const SCHOOL_COLOR_STORAGE_KEY = 'glasgow-explorer-school-colors-v2';
+let selectedPointIndex = null;
+let activePaletteSchool = null;
 
 // pre-index
 const pmidIdx = {{}};
@@ -449,6 +540,31 @@ function connColor(n) {{
   const g = Math.round(255 * (1 - t) * 0.4);
   return `rgb(${{r}},${{g}},40)`;
 }}
+
+function loadStoredSchoolColors() {{
+  try {{
+    const raw = localStorage.getItem(SCHOOL_COLOR_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    Object.entries(parsed).forEach(([school, color]) => {{
+      if (Object.prototype.hasOwnProperty.call(DEFAULT_SCHOOL_COLORS, school) && typeof color === 'string') {{
+        SCHOOL_COLORS[school] = color;
+      }}
+    }});
+  }} catch (_err) {{
+    // Ignore malformed browser storage.
+  }}
+}}
+
+function persistSchoolColors() {{
+  try {{
+    localStorage.setItem(SCHOOL_COLOR_STORAGE_KEY, JSON.stringify(SCHOOL_COLORS));
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
+loadStoredSchoolColors();
 
 // ── colour assignment helpers ────────────────────────────────────
 function getColors(mode) {{
@@ -584,21 +700,140 @@ const legendEl = document.getElementById('colour-legend');
 function renderLegend(mode) {{
   const items = getLegendItems(mode);
   const modeLabel = {{ school: 'School', college: 'College', year: 'Year', citations: 'Citations' }}[mode] || mode;
-  let html = `<div class="leg-title">${{modeLabel}}</div>`;
+  legendEl.innerHTML = '';
+  const title = document.createElement('div');
+  title.className = 'leg-title';
+  title.textContent = mode === 'school' || mode === 'citations' ? `${{modeLabel}} (click a name to recolour)` : modeLabel;
+  legendEl.appendChild(title);
   items.forEach(([label, color]) => {{
-    html += `<div class="leg-item"><span class="leg-swatch" style="background:${{color}}"></span><span class="leg-label">${{label}}</span></div>`;
+    const item = document.createElement('div');
+    item.className = 'leg-item';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'leg-swatch';
+    swatch.style.background = color;
+    item.appendChild(swatch);
+
+    if (mode === 'school' || mode === 'citations') {{
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'leg-label-btn';
+      button.dataset.school = label;
+      button.textContent = label;
+      item.appendChild(button);
+    }} else {{
+      const labelEl = document.createElement('span');
+      labelEl.className = 'leg-label';
+      labelEl.textContent = label;
+      item.appendChild(labelEl);
+    }}
+
+    legendEl.appendChild(item);
   }});
-  legendEl.innerHTML = html;
 }}
 renderLegend('school');
 
-// ── colour mode switching ────────────────────────────────────────
-const modeSelect = document.getElementById('colour-mode');
-modeSelect.addEventListener('change', () => {{
+const paletteBackdrop = document.getElementById('palette-backdrop');
+const paletteGrid = document.getElementById('palette-grid');
+const paletteSubtitle = document.getElementById('palette-subtitle');
+const paletteCurrentSwatch = document.getElementById('palette-current-swatch');
+const paletteCurrentLabel = document.getElementById('palette-current-label');
+const paletteClose = document.getElementById('palette-close');
+const paletteReset = document.getElementById('palette-reset');
+const paletteResetAll = document.getElementById('palette-reset-all');
+
+function applyColourState() {{
   const mode = modeSelect.value;
   clearEdges();
   Plotly.restyle('umap-plot', {{ 'marker.color': [getColors(mode)] }}, [0]);
   renderLegend(mode);
+  if (selectedPointIndex !== null) {{
+    renderDetail(DATA[selectedPointIndex]);
+  }}
+}}
+
+function renderPaletteGrid() {{
+  if (!activePaletteSchool) return;
+  paletteGrid.innerHTML = '';
+  const activeColor = SCHOOL_COLORS[activePaletteSchool];
+  const defaultColor = DEFAULT_SCHOOL_COLORS[activePaletteSchool];
+  paletteSubtitle.textContent = `${{activePaletteSchool}}. Colours are ordered by hue family, then increasing brightness.`;
+  paletteCurrentSwatch.style.background = activeColor;
+  paletteCurrentLabel.textContent = `Current: ${{activeColor}}  |  Default: ${{defaultColor}}`;
+
+  SCHOOL_PICKER_COLORS.forEach((color, index) => {{
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'palette-chip';
+    if (color === activeColor) button.classList.add('active');
+    button.dataset.color = color;
+    button.title = color;
+    button.style.background = color;
+
+    const label = document.createElement('span');
+    label.className = 'palette-chip-label';
+    label.textContent = String(index + 1);
+    button.appendChild(label);
+
+    paletteGrid.appendChild(button);
+  }});
+}}
+
+function openPaletteForSchool(school) {{
+  activePaletteSchool = school;
+  renderPaletteGrid();
+  paletteBackdrop.classList.add('open');
+  paletteBackdrop.setAttribute('aria-hidden', 'false');
+}}
+
+function closePalette() {{
+  paletteBackdrop.classList.remove('open');
+  paletteBackdrop.setAttribute('aria-hidden', 'true');
+  activePaletteSchool = null;
+}}
+
+legendEl.addEventListener('click', ev => {{
+  const button = ev.target.closest('.leg-label-btn');
+  if (!button) return;
+  openPaletteForSchool(button.dataset.school);
+}});
+
+paletteGrid.addEventListener('click', ev => {{
+  const chip = ev.target.closest('.palette-chip');
+  if (!chip || !activePaletteSchool) return;
+  SCHOOL_COLORS[activePaletteSchool] = chip.dataset.color;
+  persistSchoolColors();
+  renderPaletteGrid();
+  applyColourState();
+}});
+
+paletteClose.addEventListener('click', closePalette);
+paletteBackdrop.addEventListener('click', ev => {{
+  if (ev.target === paletteBackdrop) closePalette();
+}});
+paletteReset.addEventListener('click', () => {{
+  if (!activePaletteSchool) return;
+  SCHOOL_COLORS[activePaletteSchool] = DEFAULT_SCHOOL_COLORS[activePaletteSchool];
+  persistSchoolColors();
+  renderPaletteGrid();
+  applyColourState();
+}});
+paletteResetAll.addEventListener('click', () => {{
+  Object.keys(DEFAULT_SCHOOL_COLORS).forEach(school => {{
+    SCHOOL_COLORS[school] = DEFAULT_SCHOOL_COLORS[school];
+  }});
+  persistSchoolColors();
+  renderPaletteGrid();
+  applyColourState();
+}});
+document.addEventListener('keydown', ev => {{
+  if (ev.key === 'Escape' && paletteBackdrop.classList.contains('open')) closePalette();
+}});
+
+// ── colour mode switching ────────────────────────────────────────
+const modeSelect = document.getElementById('colour-mode');
+modeSelect.addEventListener('change', () => {{
+  applyColourState();
 }});
 
 // ── panel toggling ───────────────────────────────────────────────
@@ -652,6 +887,7 @@ plot.on('plotly_click', ev => {{
   if (!ev || !ev.points || !ev.points.length) return;
   const i = ev.points[0].pointIndex;
   const d = DATA[i];
+  selectedPointIndex = i;
   setPanelHidden(false);
   renderDetail(d);
   drawEdges(d.pmid);
