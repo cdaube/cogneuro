@@ -393,6 +393,19 @@ body.panel-hidden .panel{{transform:translateX(100%);opacity:0;pointer-events:no
 .btn{{border:1px solid #cbd5e1;background:#ffffff;color:#1e293b;border-radius:6px;font-size:12px;padding:5px 10px;cursor:pointer}}
 .btn:hover{{background:#f1f5f9}}
 select.btn{{padding-right:24px}}
+.control-stack{{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}}
+.control-block{{display:flex;flex-direction:column;gap:6px}}
+.control-label{{font-size:11px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#64748b}}
+.toggle-row{{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #dbe4ee;background:#ffffff;border-radius:10px}}
+.toggle-copy{{display:flex;flex-direction:column;gap:2px}}
+.toggle-title{{font-size:13px;color:#1e293b}}
+.toggle-sub{{font-size:11px;color:#64748b}}
+.switch{{position:relative;width:40px;height:22px;flex-shrink:0}}
+.switch input{{position:absolute;inset:0;opacity:0;cursor:pointer}}
+.switch-track{{position:absolute;inset:0;border-radius:999px;background:#cbd5e1;transition:background 120ms ease}}
+.switch-thumb{{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,0.2);transition:transform 120ms ease}}
+.switch input:checked + .switch-track{{background:#0f172a}}
+.switch input:checked + .switch-track .switch-thumb{{transform:translateX(18px)}}
 .panel-pop{{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:20;border:1px solid #cbd5e1;background:#ffffff;color:#1e293b;border-radius:999px;padding:8px 14px;font-size:12px;cursor:pointer;display:none}}
 body.panel-hidden .panel-pop{{display:block}}
 
@@ -448,17 +461,34 @@ a:hover{{text-decoration:underline}}
     <div class="panel-head">
       <h2>Paper Details</h2>
       <div class="panel-toolbar">
-        <select id="colour-mode" class="btn">
-          <option value="school">School</option>
-          <option value="college">College</option>
-          <option value="year">Year</option>
-          <option value="citations">Citation network</option>
-        </select>
         <button id="panel-toggle" class="btn" type="button">Hide &#9654;</button>
       </div>
     </div>
     <div class="panel-body">
-      <div class="instructions">Hover for preview &middot; Click to pin details &middot; Use the dropdown to change colours</div>
+      <div class="control-stack">
+        <div class="control-block">
+          <label class="control-label" for="colour-mode">Colouring</label>
+          <select id="colour-mode" class="btn">
+            <option value="school">School</option>
+            <option value="college">College</option>
+            <option value="year">Year</option>
+          </select>
+        </div>
+        <div class="control-block">
+          <div class="control-label">Citation Network</div>
+          <label class="toggle-row" for="citation-network-toggle">
+            <span class="toggle-copy">
+              <span class="toggle-title">Show citation links</span>
+              <span class="toggle-sub">Overlay the full citation network on top of the current colouring.</span>
+            </span>
+            <span class="switch">
+              <input id="citation-network-toggle" type="checkbox" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+        </div>
+      </div>
+      <div class="instructions">Hover for preview &middot; Click to pin details &middot; Use the menu to change colouring</div>
       <div id="paper-detail" style="color:#94a3b8;">Click a point to see its details.</div>
     </div>
   </aside>
@@ -500,9 +530,11 @@ const presentSchools = new Set(DATA.map(d => d.school).filter(Boolean));
 const presentColleges = new Set(DATA.map(d => d.college).filter(Boolean));
 const SCHOOL_COLOR_STORAGE_KEY = 'glasgow-explorer-school-colors-v2';
 const SCHOOL_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-school-visibility-v1';
+const CITATION_NETWORK_STORAGE_KEY = 'glasgow-explorer-citation-network-v1';
 let selectedPointIndex = null;
 let activePaletteSchool = null;
 const hiddenSchools = new Set();
+let citationNetworkEnabled = false;
 
 // pre-index
 const pmidIdx = {{}};
@@ -590,8 +622,25 @@ function persistHiddenSchools() {{
   }}
 }}
 
+function loadCitationNetworkEnabled() {{
+  try {{
+    citationNetworkEnabled = localStorage.getItem(CITATION_NETWORK_STORAGE_KEY) === 'true';
+  }} catch (_err) {{
+    citationNetworkEnabled = false;
+  }}
+}}
+
+function persistCitationNetworkEnabled() {{
+  try {{
+    localStorage.setItem(CITATION_NETWORK_STORAGE_KEY, citationNetworkEnabled ? 'true' : 'false');
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
 loadStoredSchoolColors();
 loadHiddenSchools();
+loadCitationNetworkEnabled();
 
 function isSchoolVisible(school) {{
   return !hiddenSchools.has(school);
@@ -629,11 +678,6 @@ function getLegendItems(mode) {{
       items.push([String(y), yearColor(y)]);
     }}
     return items;
-  }}
-  if (mode === 'citations') {{
-    return SCHOOL_ORDER
-      .filter(name => presentSchools.has(name))
-      .map(name => [name, SCHOOL_COLORS[name]]);
   }}
   return [];
 }}
@@ -778,24 +822,24 @@ function drawCitationNetwork(selectedPmid = null) {{
 const legendEl = document.getElementById('colour-legend');
 function renderLegend(mode) {{
   const items = getLegendItems(mode);
-  const modeLabel = {{ school: 'School', college: 'College', year: 'Year', citations: 'Citations' }}[mode] || mode;
+  const modeLabel = {{ school: 'School', college: 'College', year: 'Year' }}[mode] || mode;
   legendEl.innerHTML = '';
   const title = document.createElement('div');
   title.className = 'leg-title';
-  title.textContent = mode === 'school' || mode === 'citations' ? `${{modeLabel}} (click a name to recolour)` : modeLabel;
+  title.textContent = mode === 'school' ? `${{modeLabel}} (click a name to recolour)` : modeLabel;
   legendEl.appendChild(title);
   items.forEach(([label, color]) => {{
     const item = document.createElement('div');
     item.className = 'leg-item';
 
-    const swatch = document.createElement(mode === 'school' || mode === 'citations' ? 'button' : 'span');
-    if (mode === 'school' || mode === 'citations') {{
+    const swatch = document.createElement(mode === 'school' ? 'button' : 'span');
+    if (mode === 'school') {{
       swatch.type = 'button';
     }}
     swatch.className = 'leg-swatch-btn';
-    if ((mode === 'school' || mode === 'citations') && !isSchoolVisible(label)) swatch.classList.add('off');
+    if (mode === 'school' && !isSchoolVisible(label)) swatch.classList.add('off');
     swatch.style.background = color;
-    if (mode === 'school' || mode === 'citations') {{
+    if (mode === 'school') {{
       swatch.dataset.schoolToggle = label;
       swatch.title = isSchoolVisible(label) ? `Hide ${{label}}` : `Show ${{label}}`;
       const check = document.createElement('span');
@@ -805,7 +849,7 @@ function renderLegend(mode) {{
     }}
     item.appendChild(swatch);
 
-    if (mode === 'school' || mode === 'citations') {{
+    if (mode === 'school') {{
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'leg-label-btn';
@@ -832,12 +876,14 @@ const paletteCurrentLabel = document.getElementById('palette-current-label');
 const paletteClose = document.getElementById('palette-close');
 const paletteReset = document.getElementById('palette-reset');
 const paletteResetAll = document.getElementById('palette-reset-all');
+const citationNetworkToggle = document.getElementById('citation-network-toggle');
+citationNetworkToggle.checked = citationNetworkEnabled;
 
 function applyColourState() {{
   const mode = modeSelect.value;
   Plotly.restyle('umap-plot', {{ 'marker.color': [getColors(mode)], 'marker.size': [getMarkerSizes()] }}, [0]);
   renderLegend(mode);
-  if (mode === 'citations') {{
+  if (citationNetworkEnabled) {{
     drawCitationNetwork(selectedPointIndex !== null ? DATA[selectedPointIndex].pmid : null);
   }} else {{
     clearEdges();
@@ -947,6 +993,12 @@ modeSelect.addEventListener('change', () => {{
   applyColourState();
 }});
 
+citationNetworkToggle.addEventListener('change', () => {{
+  citationNetworkEnabled = citationNetworkToggle.checked;
+  persistCitationNetworkEnabled();
+  applyColourState();
+}});
+
 // ── panel toggling ───────────────────────────────────────────────
 const panelToggle = document.getElementById('panel-toggle');
 const panelPop = document.getElementById('panel-pop');
@@ -1002,10 +1054,10 @@ plot.on('plotly_click', ev => {{
   selectedPointIndex = i;
   setPanelHidden(false);
   renderDetail(d);
-  if (modeSelect.value === 'citations') {{
+  if (citationNetworkEnabled) {{
     drawCitationNetwork(d.pmid);
   }} else {{
-    drawSelectedEdges(d.pmid);
+    clearEdges();
   }}
 }});
 
