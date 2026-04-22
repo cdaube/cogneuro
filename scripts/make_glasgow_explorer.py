@@ -87,11 +87,138 @@ COLLEGE_COLORS = {
     "Arts & Humanities": "#a855f7",
 }
 
+SCHOOL_ORDER = [
+    "School of Biodiversity, One Health & Veterinary Medicine",
+    "School of Cancer Sciences",
+    "School of Cardiovascular & Metabolic Health",
+    "School of Health & Wellbeing",
+    "School of Infection & Immunity",
+    "School of Medicine, Dentistry & Nursing",
+    "School of Molecular Biosciences",
+    "School of Psychology & Neuroscience",
+    "School of Mathematics and Statistics",
+    "School of Physics and Astronomy",
+    "School of Computing Science",
+    "School of Chemistry",
+    "James Watt School of Engineering",
+    "School of Geographical and earth Sciences",
+    "School of Biomedical Engineering",
+]
+
+MVLS_SCHOOLS = [
+    "School of Biodiversity, One Health & Veterinary Medicine",
+    "School of Cancer Sciences",
+    "School of Cardiovascular & Metabolic Health",
+    "School of Health & Wellbeing",
+    "School of Infection & Immunity",
+    "School of Medicine, Dentistry & Nursing",
+    "School of Molecular Biosciences",
+    "School of Psychology & Neuroscience",
+]
+
+BLUE_HUE_SCHOOLS = [
+    "School of Mathematics and Statistics",
+    "School of Physics and Astronomy",
+    "School of Computing Science",
+    "School of Chemistry",
+    "James Watt School of Engineering",
+    "School of Geographical and earth Sciences",
+    "School of Biomedical Engineering",
+]
+
+SCHOOL_ORDER_INDEX = {school: idx for idx, school in enumerate(SCHOOL_ORDER)}
+SCHOOL_NORMALIZATION = {
+    "smdn": "School of Medicine, Dentistry & Nursing",
+    "school of medicine, dentistry & nursing": "School of Medicine, Dentistry & Nursing",
+    "school of medicine, dentistry and nursing": "School of Medicine, Dentistry & Nursing",
+    "school of infection & immunology": "School of Infection & Immunity",
+    "school of infection and immunology": "School of Infection & Immunity",
+    "school of infection & immunity": "School of Infection & Immunity",
+    "school of infection and immunity": "School of Infection & Immunity",
+    "james watt school of engineering": "James Watt School of Engineering",
+    "suerc": "James Watt School of Engineering",
+    "school of geographical and earth sciences": "School of Geographical and earth Sciences",
+    "school of humanities": "",
+}
+
+LEGACY_SCHOOL_COLORS = {
+    "James Watt School of Engineering": "rgb(0,0,255)",
+    "SMDN": "rgb(0,255,0)",
+    "SUERC": "rgb(255,0,0)",
+    "School of Biodiversity, One Health & Veterinary Medicine": "rgb(255,0,175)",
+    "School of Biomedical Engineering": "rgb(255,211,8)",
+    "School of Cancer Sciences": "rgb(0,131,246)",
+    "School of Cardiovascular & Metabolic Health": "rgb(0,140,70)",
+    "School of Chemistry": "rgb(175,105,61)",
+    "School of Computing Science": "rgb(87,8,96)",
+    "School of Geographical and earth Sciences": "rgb(0,140,167)",
+    "School of Health & Wellbeing": "rgb(255,175,255)",
+    "School of Humanities": "rgb(0,255,237)",
+    "School of Infection & Immunology": "rgb(193,255,123)",
+    "School of Mathematics and Statistics": "rgb(175,87,246)",
+    "School of Medicine, Dentistry & Nursing": "rgb(202,0,70)",
+    "School of Molecular Biosciences": "rgb(131,140,0)",
+    "School of Physics and Astronomy": "rgb(140,105,131)",
+    "School of Psychology & Neuroscience": "rgb(43,61,0)",
+}
+
+# Additional blue-ish hues selected from distinguishable_colors(100),
+# reusing the existing four blue family colours requested by the user.
+BLUE_PALETTE_EXTRA_INDICES = (35, 51, 94)
+
 
 def clean(value):
     if pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def normalize_school(value):
+    cleaned = clean(value)
+    if not cleaned:
+        return ""
+    return SCHOOL_NORMALIZATION.get(cleaned.lower(), cleaned)
+
+
+def school_sort_key(value):
+    return (SCHOOL_ORDER_INDEX.get(value, len(SCHOOL_ORDER)), value)
+
+
+def rgb_to_css(rgb):
+    return f"rgb({int(rgb[0] * 255)},{int(rgb[1] * 255)},{int(rgb[2] * 255)})"
+
+
+def build_school_color_map():
+    palette_100 = distinguishable_colors(100, bg=np.array([[1, 1, 1], [0, 0, 0]]))
+    extra_blue_hues = [rgb_to_css(palette_100[idx]) for idx in BLUE_PALETTE_EXTRA_INDICES]
+    mvls_hues = [
+        LEGACY_SCHOOL_COLORS["School of Biodiversity, One Health & Veterinary Medicine"],
+        LEGACY_SCHOOL_COLORS["SUERC"],
+        LEGACY_SCHOOL_COLORS["School of Cardiovascular & Metabolic Health"],
+        LEGACY_SCHOOL_COLORS["School of Biomedical Engineering"],
+        LEGACY_SCHOOL_COLORS["School of Infection & Immunology"],
+        LEGACY_SCHOOL_COLORS["School of Medicine, Dentistry & Nursing"],
+        LEGACY_SCHOOL_COLORS["School of Molecular Biosciences"],
+        LEGACY_SCHOOL_COLORS["School of Computing Science"],
+    ]
+    blue_hues = [
+        extra_blue_hues[0],
+        LEGACY_SCHOOL_COLORS["School of Cancer Sciences"],
+        extra_blue_hues[1],
+        LEGACY_SCHOOL_COLORS["School of Geographical and earth Sciences"],
+        LEGACY_SCHOOL_COLORS["James Watt School of Engineering"],
+        LEGACY_SCHOOL_COLORS["School of Humanities"],
+        extra_blue_hues[2],
+    ]
+
+    school_color_map = dict(zip(MVLS_SCHOOLS, mvls_hues, strict=True))
+    school_color_map.update(dict(zip(BLUE_HUE_SCHOOLS, blue_hues, strict=True)))
+
+    missing = [school for school in SCHOOL_ORDER if school not in school_color_map]
+    if missing:
+        raise ValueError(f"Missing school colours for: {missing}")
+
+    return school_color_map
 
 
 def main():
@@ -110,6 +237,12 @@ def main():
     df["y"] = coords[:, 1].astype(np.float32)
     df["year_int"] = pd.to_numeric(df["year"], errors="coerce")
     df["pmid"] = df["pmid"].astype(str)
+    authors["pmid"] = authors["pmid"].astype(str)
+    authors["school"] = authors["school"].map(normalize_school)
+    authors = authors[authors["school"].isin(SCHOOL_ORDER)].copy()
+
+    if authors.empty:
+        raise ValueError("No Glasgow authors remain after school normalization/filtering.")
 
     # Citations
     cit_file = os.path.join(DATA_DIR, "glasgow_citations.csv")
@@ -124,13 +257,14 @@ def main():
     # Author/school/college aggregation
     agg = authors.groupby("pmid").agg(
         glasgow_authors=("author_name", lambda x: "; ".join(sorted(set(x)))),
-        schools=("school", lambda x: "; ".join(sorted(set(x)))),
+        schools=("school", lambda x: "; ".join(sorted(set(x), key=school_sort_key))),
         colleges=("college", lambda x: "; ".join(sorted(set(x)))),
         primary_college=("college", "first"),
         primary_school=("school", "first"),
     ).reset_index()
     agg["pmid"] = agg["pmid"].astype(str)
-    df = df.merge(agg, on="pmid", how="left")
+    df = df.merge(agg, on="pmid", how="inner")
+    print(f"  Retained {len(df)} papers across {agg['primary_school'].nunique()} schools")
 
     # Citation graph edges
     graph_file = os.path.join(DATA_DIR, "glasgow_citation_graph.csv")
@@ -143,12 +277,7 @@ def main():
     # ------------------------------------------------------------------
     # 2. Build colour maps
     # ------------------------------------------------------------------
-    school_names = sorted(df["primary_school"].dropna().unique())
-    n_schools = len(school_names)
-    school_rgb = distinguishable_colors(n_schools, bg=np.array([[1, 1, 1], [0, 0, 0]]))
-    school_color_map = {}
-    for name, (r, g, b) in zip(school_names, school_rgb):
-        school_color_map[name] = f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"
+    school_color_map = build_school_color_map()
 
     # ------------------------------------------------------------------
     # 3. Prepare JSON data blob (one row per paper)
@@ -182,6 +311,7 @@ def main():
         data_json=data_json,
         edges_json=edges_json,
         school_color_map_json=json.dumps(school_color_map, separators=(",", ":")),
+        school_order_json=json.dumps(SCHOOL_ORDER, separators=(",", ":")),
         college_color_map_json=json.dumps(COLLEGE_COLORS, separators=(",", ":")),
         n_papers=len(df),
     )
@@ -193,7 +323,7 @@ def main():
 
 
 def _build_html(*, data_json, edges_json, school_color_map_json,
-                college_color_map_json, n_papers):
+                school_order_json, college_color_map_json, n_papers):
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -273,8 +403,11 @@ a:hover{{text-decoration:underline}}
 const DATA = {data_json};
 const EDGES = {edges_json};
 const SCHOOL_COLORS = {school_color_map_json};
+const SCHOOL_ORDER = {school_order_json};
 const COLLEGE_COLORS = {college_color_map_json};
 const N = DATA.length;
+const presentSchools = new Set(DATA.map(d => d.school).filter(Boolean));
+const presentColleges = new Set(DATA.map(d => d.college).filter(Boolean));
 
 // pre-index
 const pmidIdx = {{}};
@@ -328,10 +461,14 @@ function getColors(mode) {{
 
 function getLegendItems(mode) {{
   if (mode === 'school') {{
-    return Object.entries(SCHOOL_COLORS).sort((a,b) => a[0].localeCompare(b[0]));
+    return SCHOOL_ORDER
+      .filter(name => presentSchools.has(name))
+      .map(name => [name, SCHOOL_COLORS[name]]);
   }}
   if (mode === 'college') {{
-    return Object.entries(COLLEGE_COLORS).sort((a,b) => a[0].localeCompare(b[0]));
+    return Object.entries(COLLEGE_COLORS)
+      .filter(([name]) => presentColleges.has(name))
+      .sort((a,b) => a[0].localeCompare(b[0]));
   }}
   if (mode === 'year') {{
     const steps = 6;
@@ -343,7 +480,9 @@ function getLegendItems(mode) {{
     return items;
   }}
   if (mode === 'citations') {{
-    return Object.entries(SCHOOL_COLORS).sort((a,b) => a[0].localeCompare(b[0]));
+    return SCHOOL_ORDER
+      .filter(name => presentSchools.has(name))
+      .map(name => [name, SCHOOL_COLORS[name]]);
   }}
   return [];
 }}
