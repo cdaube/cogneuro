@@ -681,7 +681,7 @@ const IMAGING_KEYWORDS = [
   'stereotaxic','stereotactic','cytoarchitect',
 ];
 const IMAGING_REGEX = new RegExp(
-  '\\b(?:' + IMAGING_KEYWORDS.map(k => k.replace(/[.*+?^${{}}()|[\\]\\]/g, '\\$&')).join('|') + ')\\b',
+  '\\\\b(?:' + IMAGING_KEYWORDS.map(k => k.replace(/[.*+?^${{}}()|[\\]\\\\]/g, '\\\\$&')).join('|') + ')\\\\b',
   'i'
 );
 let selectedPointIndex = null;
