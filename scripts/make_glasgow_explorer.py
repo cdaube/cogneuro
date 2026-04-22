@@ -468,6 +468,9 @@ select.btn{{padding-right:24px}}
 .control-stack{{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}}
 .control-block{{display:flex;flex-direction:column;gap:6px}}
 .control-label{{font-size:11px;font-weight:600;letter-spacing:0.02em;text-transform:uppercase;color:#64748b}}
+.slider-row{{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #dbe4ee;background:#ffffff;border-radius:10px}}
+.slider-row input[type="range"]{{flex:1;accent-color:#0f172a}}
+.slider-value{{min-width:28px;text-align:right;font-size:12px;color:#475569}}
 .toggle-row{{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #dbe4ee;background:#ffffff;border-radius:10px}}
 .toggle-copy{{display:flex;flex-direction:column;gap:2px}}
 .toggle-title{{font-size:13px;color:#1e293b}}
@@ -495,6 +498,8 @@ a:hover{{text-decoration:underline}}
 /* legend at bottom-left of plot */
 #colour-legend{{position:absolute;bottom:12px;left:12px;background:rgba(255,255,255,0.92);border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;max-height:50vh;overflow-y:auto;font-size:11px;z-index:10;max-width:260px}}
 #colour-legend .leg-title{{font-weight:600;margin-bottom:6px;font-size:12px;color:#1e293b}}
+.leg-group-title{{font-weight:700;margin:9px 0 5px;font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:#0f172a}}
+.leg-group-title:first-of-type{{margin-top:0}}
 .leg-item{{display:flex;align-items:center;gap:6px;margin-bottom:3px;opacity:0.9}}
 .leg-item:hover{{opacity:1}}
 .leg-swatch-btn{{width:14px;height:14px;border-radius:3px;flex-shrink:0;border:1px solid rgba(15,23,42,0.18);padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#ffffff;font-size:10px;line-height:1;background-clip:padding-box}}
@@ -565,6 +570,13 @@ a:hover{{text-decoration:underline}}
             </span>
           </label>
         </div>
+        <div class="control-block">
+          <div class="control-label">Point Size</div>
+          <label class="slider-row" for="point-size-slider">
+            <input id="point-size-slider" type="range" min="1" max="12" step="1" value="4" />
+            <span id="point-size-value" class="slider-value">4</span>
+          </label>
+        </div>
       </div>
       <div class="instructions">Hover for preview &middot; Click to pin details &middot; Use the menu to change colour or projection</div>
       <div id="paper-detail" style="color:#94a3b8;">Click a point to see its details.</div>
@@ -608,13 +620,20 @@ let currentProjection = 0;
 const N = DATA.length;
 const presentSchools = new Set(DATA.map(d => d.school).filter(Boolean));
 const presentColleges = new Set(DATA.map(d => d.college).filter(Boolean));
+const presentYears = Array.from(new Set(DATA.map(d => d.year_int).filter(y => y !== null))).sort((a, b) => a - b);
 const SCHOOL_COLOR_STORAGE_KEY = 'glasgow-explorer-school-colors-v2';
 const SCHOOL_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-school-visibility-v1';
+const COLLEGE_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-college-visibility-v1';
+const YEAR_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-year-visibility-v1';
 const CITATION_NETWORK_STORAGE_KEY = 'glasgow-explorer-citation-network-v1';
+const POINT_SIZE_STORAGE_KEY = 'glasgow-explorer-point-size-v1';
 let selectedPointIndex = null;
 let activePaletteSchool = null;
 const hiddenSchools = new Set();
+const hiddenColleges = new Set();
+const hiddenYears = new Set();
 let citationNetworkEnabled = false;
+let pointSize = 4;
 
 // pre-index
 const pmidIdx = {{}};
@@ -702,6 +721,51 @@ function persistHiddenSchools() {{
   }}
 }}
 
+function loadHiddenColleges() {{
+  try {{
+    const raw = localStorage.getItem(COLLEGE_VISIBILITY_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach(college => {{
+      if (presentColleges.has(college)) hiddenColleges.add(college);
+    }});
+  }} catch (_err) {{
+    // Ignore malformed browser storage.
+  }}
+}}
+
+function persistHiddenColleges() {{
+  try {{
+    localStorage.setItem(COLLEGE_VISIBILITY_STORAGE_KEY, JSON.stringify(Array.from(hiddenColleges)));
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
+function loadHiddenYears() {{
+  try {{
+    const raw = localStorage.getItem(YEAR_VISIBILITY_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach(year => {{
+      const normalized = String(year);
+      if (presentYears.includes(Number(normalized))) hiddenYears.add(normalized);
+    }});
+  }} catch (_err) {{
+    // Ignore malformed browser storage.
+  }}
+}}
+
+function persistHiddenYears() {{
+  try {{
+    localStorage.setItem(YEAR_VISIBILITY_STORAGE_KEY, JSON.stringify(Array.from(hiddenYears)));
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
 function loadCitationNetworkEnabled() {{
   try {{
     citationNetworkEnabled = localStorage.getItem(CITATION_NETWORK_STORAGE_KEY) === 'true';
@@ -718,32 +782,80 @@ function persistCitationNetworkEnabled() {{
   }}
 }}
 
+function loadPointSize() {{
+  try {{
+    const raw = localStorage.getItem(POINT_SIZE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = Number(raw);
+    if (!Number.isNaN(parsed)) pointSize = Math.max(1, Math.min(12, parsed));
+  }} catch (_err) {{
+    pointSize = 4;
+  }}
+}}
+
+function persistPointSize() {{
+  try {{
+    localStorage.setItem(POINT_SIZE_STORAGE_KEY, String(pointSize));
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
 loadStoredSchoolColors();
 loadHiddenSchools();
+loadHiddenColleges();
+loadHiddenYears();
 loadCitationNetworkEnabled();
+loadPointSize();
 
 function isSchoolVisible(school) {{
   return !hiddenSchools.has(school);
 }}
 
+function isCollegeVisible(college) {{
+  return !hiddenColleges.has(college);
+}}
+
+function yearKey(value) {{
+  return value === null ? '' : String(value);
+}}
+
+function isYearVisible(year) {{
+  const key = yearKey(year);
+  return key ? !hiddenYears.has(key) : true;
+}}
+
+function isDatumVisible(d, mode) {{
+  if (!isSchoolVisible(d.school)) return false;
+  if (mode === 'college') return isCollegeVisible(d.college);
+  if (mode === 'year') return isYearVisible(d.year_int);
+  return true;
+}}
+
+function getCurrentMode() {{
+  const select = document.getElementById('colour-mode');
+  return select ? select.value : 'school';
+}}
+
 // ── colour assignment helpers ────────────────────────────────────
 function getColors(mode) {{
-  if (mode === 'school') return DATA.map(d => isSchoolVisible(d.school) ? (SCHOOL_COLORS[d.school] || 'rgb(80,80,80)') : 'rgba(0,0,0,0)');
-  if (mode === 'college') return DATA.map(d => isSchoolVisible(d.school) ? (COLLEGE_COLORS[d.college] || 'rgb(80,80,80)') : 'rgba(0,0,0,0)');
-  if (mode === 'year') return DATA.map(d => isSchoolVisible(d.school) ? yearColor(d.year_int) : 'rgba(0,0,0,0)');
-  if (mode === 'citations') return DATA.map(d => isSchoolVisible(d.school) ? (SCHOOL_COLORS[d.school] || 'rgb(180,180,180)') : 'rgba(0,0,0,0)');
+  if (mode === 'school') return DATA.map(d => isDatumVisible(d, mode) ? (SCHOOL_COLORS[d.school] || 'rgb(80,80,80)') : 'rgba(0,0,0,0)');
+  if (mode === 'college') return DATA.map(d => isDatumVisible(d, mode) ? (COLLEGE_COLORS[d.college] || 'rgb(80,80,80)') : 'rgba(0,0,0,0)');
+  if (mode === 'year') return DATA.map(d => isDatumVisible(d, mode) ? yearColor(d.year_int) : 'rgba(0,0,0,0)');
+  if (mode === 'citations') return DATA.map(d => isDatumVisible(d, mode) ? (SCHOOL_COLORS[d.school] || 'rgb(180,180,180)') : 'rgba(0,0,0,0)');
   return DATA.map(() => 'rgb(100,100,100)');
 }}
 
 function getMarkerSizes() {{
-  return DATA.map(d => isSchoolVisible(d.school) ? 4 : 0.01);
+  const mode = getCurrentMode();
+  return DATA.map(d => isDatumVisible(d, mode) ? pointSize : 0.01);
 }}
 
 function getLegendItems(mode) {{
   if (mode === 'school') {{
     return SCHOOL_ORDER
       .filter(name => presentSchools.has(name))
-      .map(name => [name, SCHOOL_COLORS[name]]);
+      .map(name => [name, SCHOOL_COLORS[name], name]);
   }}
   if (mode === 'college') {{
     return Object.entries(COLLEGE_COLORS)
@@ -751,13 +863,7 @@ function getLegendItems(mode) {{
       .sort((a,b) => a[0].localeCompare(b[0]));
   }}
   if (mode === 'year') {{
-    const steps = 6;
-    const items = [];
-    for (let i = 0; i <= steps; i++) {{
-      const y = Math.round(minYear + i * (maxYear - minYear) / steps);
-      items.push([String(y), yearColor(y)]);
-    }}
-    return items;
+    return presentYears.map(year => [String(year), yearColor(year), String(year)]);
   }}
   return [];
 }}
@@ -785,6 +891,7 @@ const layout = {{
   yaxis: {{ visible: false }},
   showlegend: false,
   hovermode: 'closest',
+  dragmode: 'pan',
 }};
 
 Plotly.newPlot('umap-plot', [scatterTrace], layout, {{
@@ -806,10 +913,11 @@ function clearEdges() {{
 }}
 
 function isEdgeVisible(sourcePmid, targetPmid) {{
+  const mode = getCurrentMode();
   const sourceIdx = pmidIdx[sourcePmid];
   const targetIdx = pmidIdx[targetPmid];
   if (sourceIdx === undefined || targetIdx === undefined) return false;
-  return isSchoolVisible(DATA[sourceIdx].school) && isSchoolVisible(DATA[targetIdx].school);
+  return isDatumVisible(DATA[sourceIdx], mode) && isDatumVisible(DATA[targetIdx], mode);
 }}
 
 function buildSelectedEdgeTraces(pmid) {{
@@ -906,18 +1014,35 @@ function renderLegend(mode) {{
   legendEl.innerHTML = '';
   const title = document.createElement('div');
   title.className = 'leg-title';
-  title.textContent = mode === 'school' ? `${{modeLabel}} (click a name to recolour)` : modeLabel;
+  title.textContent = mode === 'school' ? `${{modeLabel}} (click a name to recolour)` : `${{modeLabel}} (tick to show or hide)`;
   legendEl.appendChild(title);
-  items.forEach(([label, color]) => {{
+
+  if (mode === 'school') {{
+    const mvlsHeader = document.createElement('div');
+    mvlsHeader.className = 'leg-group-title';
+    mvlsHeader.textContent = 'MVLS';
+    legendEl.appendChild(mvlsHeader);
+  }}
+
+  items.forEach(([label, color, rawValue]) => {{
+    if (mode === 'school' && label === 'School of Mathematics and Statistics') {{
+      const otherHeader = document.createElement('div');
+      otherHeader.className = 'leg-group-title';
+      otherHeader.textContent = 'Other';
+      legendEl.appendChild(otherHeader);
+    }}
+
     const item = document.createElement('div');
     item.className = 'leg-item';
 
-    const swatch = document.createElement(mode === 'school' ? 'button' : 'span');
-    if (mode === 'school') {{
+    const swatch = document.createElement((mode === 'school' || mode === 'college' || mode === 'year') ? 'button' : 'span');
+    if (mode === 'school' || mode === 'college' || mode === 'year') {{
       swatch.type = 'button';
     }}
     swatch.className = 'leg-swatch-btn';
     if (mode === 'school' && !isSchoolVisible(label)) swatch.classList.add('off');
+    if (mode === 'college' && !isCollegeVisible(label)) swatch.classList.add('off');
+    if (mode === 'year' && !isYearVisible(rawValue)) swatch.classList.add('off');
     swatch.style.background = color;
     if (mode === 'school') {{
       swatch.dataset.schoolToggle = label;
@@ -925,6 +1050,20 @@ function renderLegend(mode) {{
       const check = document.createElement('span');
       check.className = 'leg-swatch-check';
       check.textContent = isSchoolVisible(label) ? '✓' : '';
+      swatch.appendChild(check);
+    }} else if (mode === 'college') {{
+      swatch.dataset.collegeToggle = label;
+      swatch.title = isCollegeVisible(label) ? `Hide ${{label}}` : `Show ${{label}}`;
+      const check = document.createElement('span');
+      check.className = 'leg-swatch-check';
+      check.textContent = isCollegeVisible(label) ? '✓' : '';
+      swatch.appendChild(check);
+    }} else if (mode === 'year') {{
+      swatch.dataset.yearToggle = rawValue;
+      swatch.title = isYearVisible(rawValue) ? `Hide ${{label}}` : `Show ${{label}}`;
+      const check = document.createElement('span');
+      check.className = 'leg-swatch-check';
+      check.textContent = isYearVisible(rawValue) ? '✓' : '';
       swatch.appendChild(check);
     }}
     item.appendChild(swatch);
@@ -957,10 +1096,18 @@ const paletteClose = document.getElementById('palette-close');
 const paletteReset = document.getElementById('palette-reset');
 const paletteResetAll = document.getElementById('palette-reset-all');
 const citationNetworkToggle = document.getElementById('citation-network-toggle');
+const pointSizeSlider = document.getElementById('point-size-slider');
+const pointSizeValue = document.getElementById('point-size-value');
 citationNetworkToggle.checked = citationNetworkEnabled;
+pointSizeSlider.value = String(pointSize);
+pointSizeValue.textContent = String(pointSize);
 
 function applyColourState() {{
   const mode = modeSelect.value;
+  if (selectedPointIndex !== null && !isDatumVisible(DATA[selectedPointIndex], mode)) {{
+    selectedPointIndex = null;
+    detailEl.textContent = 'Click a point to see its details.';
+  }}
   Plotly.restyle('umap-plot', {{ 'marker.color': [getColors(mode)], 'marker.size': [getMarkerSizes()] }}, [0]);
   renderLegend(mode);
   if (citationNetworkEnabled) {{
@@ -1027,6 +1174,30 @@ legendEl.addEventListener('click', ev => {{
       hiddenSchools.add(school);
     }}
     persistHiddenSchools();
+    applyColourState();
+    return;
+  }}
+  const collegeToggle = eventElementTarget(ev)?.closest('[data-college-toggle]');
+  if (collegeToggle) {{
+    const college = collegeToggle.dataset.collegeToggle;
+    if (hiddenColleges.has(college)) {{
+      hiddenColleges.delete(college);
+    }} else {{
+      hiddenColleges.add(college);
+    }}
+    persistHiddenColleges();
+    applyColourState();
+    return;
+  }}
+  const yearToggle = eventElementTarget(ev)?.closest('[data-year-toggle]');
+  if (yearToggle) {{
+    const year = yearToggle.dataset.yearToggle;
+    if (hiddenYears.has(year)) {{
+      hiddenYears.delete(year);
+    }} else {{
+      hiddenYears.add(year);
+    }}
+    persistHiddenYears();
     applyColourState();
     return;
   }}
@@ -1102,6 +1273,13 @@ citationNetworkToggle.addEventListener('change', () => {{
   applyColourState();
 }});
 
+pointSizeSlider.addEventListener('input', () => {{
+  pointSize = parseInt(pointSizeSlider.value, 10);
+  pointSizeValue.textContent = String(pointSize);
+  persistPointSize();
+  applyColourState();
+}});
+
 // ── panel toggling ───────────────────────────────────────────────
 const panelToggle = document.getElementById('panel-toggle');
 const panelPop = document.getElementById('panel-pop');
@@ -1153,7 +1331,7 @@ plot.on('plotly_click', ev => {{
   if (!ev || !ev.points || !ev.points.length) return;
   const i = ev.points[0].pointIndex;
   const d = DATA[i];
-  if (!isSchoolVisible(d.school)) return;
+  if (!isDatumVisible(d, modeSelect.value)) return;
   selectedPointIndex = i;
   setPanelHidden(false);
   renderDetail(d);
