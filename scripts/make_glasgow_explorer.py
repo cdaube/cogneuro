@@ -263,6 +263,27 @@ def build_school_color_map():
     return school_color_map
 
 
+N_UMAP_RUNS = 10
+
+
+def _compute_multi_umap(embeddings, n_runs=N_UMAP_RUNS):
+    """Compute n_runs UMAP projections with seeds 0..n_runs-1."""
+    import umap as umap_lib
+    print(f"  Computing {n_runs} UMAP projections (this may take several minutes)...")
+    runs = []
+    for seed in range(n_runs):
+        print(f"    Run {seed + 1}/{n_runs} (seed={seed})...")
+        reducer = umap_lib.UMAP(
+            n_neighbors=15,
+            min_dist=0.1,
+            metric="cosine",
+            n_components=2,
+            random_state=seed,
+        )
+        runs.append(reducer.fit_transform(embeddings))
+    return np.stack(runs, axis=0)  # [n_runs, N, 2]
+
+
 def main():
     # ------------------------------------------------------------------
     # 1. Load & merge data
@@ -275,8 +296,39 @@ def main():
     if len(df) != len(coords):
         raise ValueError("Length mismatch between abstracts and UMAP coords.")
 
-    df["x"] = coords[:, 0].astype(np.float32)
-    df["y"] = coords[:, 1].astype(np.float32)
+    # ------------------------------------------------------------------
+    # 1b. Load or compute multi-UMAP (10 projections with different seeds)
+    # ------------------------------------------------------------------
+    multi_file = os.path.join(DATA_DIR, "glasgow_umap_coords_multi.npy")
+    emb_file = os.path.join(DATA_DIR, "glasgow_embeddings.npy")
+    multi_coords = None
+
+    if os.path.exists(multi_file):
+        _mc = np.load(multi_file)
+        if _mc.shape[0] == N_UMAP_RUNS and _mc.shape[1] == len(df):
+            multi_coords = _mc
+            print(f"  Loaded {N_UMAP_RUNS} cached UMAP projections.")
+        else:
+            print(f"  Multi-UMAP cache shape {_mc.shape} doesn't match; ignoring.")
+
+    if multi_coords is None:
+        if os.path.exists(emb_file):
+            print("  Loading embeddings for multi-UMAP computation...")
+            embeddings = np.load(emb_file)
+            multi_coords = _compute_multi_umap(embeddings)
+            np.save(multi_file, multi_coords)
+            print(f"  Saved multi-UMAP: {multi_coords.shape} → {multi_file}")
+        else:
+            print("  No embeddings found; replicating single projection for all runs.")
+            multi_coords = np.stack([coords] * N_UMAP_RUNS, axis=0)
+
+    # Attach all projection coords as df columns (survive the merge below)
+    for _i in range(N_UMAP_RUNS):
+        df[f"_ux{_i}"] = multi_coords[_i, :, 0].astype(np.float32)
+        df[f"_uy{_i}"] = multi_coords[_i, :, 1].astype(np.float32)
+
+    df["x"] = df["_ux0"]
+    df["y"] = df["_uy0"]
     df["year_int"] = pd.to_numeric(df["year"], errors="coerce")
     df["pmid"] = df["pmid"].astype(str)
     authors["pmid"] = authors["pmid"].astype(str)
@@ -346,6 +398,19 @@ def main():
 
     data_json = json.dumps(records, separators=(",", ":"))
 
+    # Build per-projection coordinate arrays (for the JS projection switcher)
+    # Shape: [[x0,x1,...xN] for proj0, ...] same for ys
+    df_reset = df.reset_index(drop=True)
+    umap_xs = [
+        [round(float(df_reset.at[j, f"_ux{i}"]), 3) for j in range(len(df_reset))]
+        for i in range(N_UMAP_RUNS)
+    ]
+    umap_ys = [
+        [round(float(df_reset.at[j, f"_uy{i}"]), 3) for j in range(len(df_reset))]
+        for i in range(N_UMAP_RUNS)
+    ]
+    umap_projections_json = json.dumps({"xs": umap_xs, "ys": umap_ys}, separators=(",", ":"))
+
     # ------------------------------------------------------------------
     # 4. Build HTML
     # ------------------------------------------------------------------
@@ -357,6 +422,8 @@ def main():
         school_order_json=json.dumps(SCHOOL_ORDER, separators=(",", ":")),
         school_picker_colors_json=json.dumps(picker_palette, separators=(",", ":")),
         college_color_map_json=json.dumps(COLLEGE_COLORS, separators=(",", ":")),
+        umap_projections_json=umap_projections_json,
+        n_umap_runs=N_UMAP_RUNS,
         n_papers=len(df),
     )
 
@@ -368,7 +435,12 @@ def main():
 
 def _build_html(*, data_json, edges_json, school_color_map_json,
                 school_order_json, school_picker_colors_json,
-                college_color_map_json, n_papers):
+                college_color_map_json, umap_projections_json,
+                n_umap_runs, n_papers):
+    projection_options = "\n    ".join(
+        f'<option value="{i}">Run {i + 1}&thinsp;(seed&nbsp;{i})</option>'
+        for i in range(n_umap_runs)
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -467,7 +539,7 @@ a:hover{{text-decoration:underline}}
     <div class="panel-body">
       <div class="control-stack">
         <div class="control-block">
-          <label class="control-label" for="colour-mode">Colouring</label>
+          <label class="control-label" for="colour-mode">Colour</label>
           <select id="colour-mode" class="btn">
             <option value="school">School</option>
             <option value="college">College</option>
@@ -475,11 +547,17 @@ a:hover{{text-decoration:underline}}
           </select>
         </div>
         <div class="control-block">
+          <label class="control-label" for="projection-select">UMAP Projection</label>
+          <select id="projection-select" class="btn">
+            {projection_options}
+          </select>
+        </div>
+        <div class="control-block">
           <div class="control-label">Citation Network</div>
           <label class="toggle-row" for="citation-network-toggle">
             <span class="toggle-copy">
               <span class="toggle-title">Show citation links</span>
-              <span class="toggle-sub">Overlay the full citation network on top of the current colouring.</span>
+              <span class="toggle-sub">Overlay the full citation network on top of the current colour.</span>
             </span>
             <span class="switch">
               <input id="citation-network-toggle" type="checkbox" />
@@ -488,7 +566,7 @@ a:hover{{text-decoration:underline}}
           </label>
         </div>
       </div>
-      <div class="instructions">Hover for preview &middot; Click to pin details &middot; Use the menu to change colouring</div>
+      <div class="instructions">Hover for preview &middot; Click to pin details &middot; Use the menu to change colour or projection</div>
       <div id="paper-detail" style="color:#94a3b8;">Click a point to see its details.</div>
     </div>
   </aside>
@@ -525,6 +603,8 @@ const SCHOOL_COLORS = {{ ...DEFAULT_SCHOOL_COLORS }};
 const SCHOOL_ORDER = {school_order_json};
 const SCHOOL_PICKER_COLORS = {school_picker_colors_json};
 const COLLEGE_COLORS = {college_color_map_json};
+const UMAP_PROJECTIONS = {umap_projections_json};  // {{xs: [[...], ...], ys: [[...], ...]}}
+let currentProjection = 0;
 const N = DATA.length;
 const presentSchools = new Set(DATA.map(d => d.school).filter(Boolean));
 const presentColleges = new Set(DATA.map(d => d.college).filter(Boolean));
@@ -991,6 +1071,29 @@ document.addEventListener('keydown', ev => {{
 const modeSelect = document.getElementById('colour-mode');
 modeSelect.addEventListener('change', () => {{
   applyColourState();
+}});
+
+// ── UMAP projection switching ─────────────────────────────────────
+const projectionSelect = document.getElementById('projection-select');
+
+function switchProjection(projIdx) {{
+  currentProjection = projIdx;
+  const newXs = UMAP_PROJECTIONS.xs[projIdx];
+  const newYs = UMAP_PROJECTIONS.ys[projIdx];
+  // Keep DATA coords in sync (needed for edge rendering)
+  DATA.forEach((d, i) => {{ d.x = newXs[i]; d.y = newYs[i]; }});
+  Plotly.restyle('umap-plot', {{ x: [newXs], y: [newYs] }}, [0]);
+  if (citationNetworkEnabled) {{
+    drawCitationNetwork(selectedPointIndex !== null ? DATA[selectedPointIndex].pmid : null);
+  }} else if (selectedPointIndex !== null) {{
+    drawSelectedEdges(DATA[selectedPointIndex].pmid);
+  }} else {{
+    clearEdges();
+  }}
+}}
+
+projectionSelect.addEventListener('change', () => {{
+  switchProjection(parseInt(projectionSelect.value, 10));
 }});
 
 citationNetworkToggle.addEventListener('change', () => {{
