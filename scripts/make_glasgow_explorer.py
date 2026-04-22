@@ -412,7 +412,9 @@ a:hover{{text-decoration:underline}}
 #colour-legend .leg-title{{font-weight:600;margin-bottom:6px;font-size:12px;color:#1e293b}}
 .leg-item{{display:flex;align-items:center;gap:6px;margin-bottom:3px;opacity:0.9}}
 .leg-item:hover{{opacity:1}}
-.leg-swatch{{width:12px;height:12px;border-radius:3px;flex-shrink:0}}
+.leg-swatch-btn{{width:14px;height:14px;border-radius:3px;flex-shrink:0;border:1px solid rgba(15,23,42,0.18);padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#ffffff;font-size:10px;line-height:1;background-clip:padding-box}}
+.leg-swatch-btn.off{{opacity:0.35}}
+.leg-swatch-check{{font-weight:700;transform:translateY(-0.5px)}}
 .leg-label{{color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .leg-label-btn{{border:none;background:none;padding:0;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:inherit;text-align:left;cursor:pointer}}
 .leg-label-btn:hover{{color:#0f172a;text-decoration:underline}}
@@ -497,8 +499,10 @@ const N = DATA.length;
 const presentSchools = new Set(DATA.map(d => d.school).filter(Boolean));
 const presentColleges = new Set(DATA.map(d => d.college).filter(Boolean));
 const SCHOOL_COLOR_STORAGE_KEY = 'glasgow-explorer-school-colors-v2';
+const SCHOOL_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-school-visibility-v1';
 let selectedPointIndex = null;
 let activePaletteSchool = null;
+const hiddenSchools = new Set();
 
 // pre-index
 const pmidIdx = {{}};
@@ -564,15 +568,46 @@ function persistSchoolColors() {{
   }}
 }}
 
+function loadHiddenSchools() {{
+  try {{
+    const raw = localStorage.getItem(SCHOOL_VISIBILITY_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach(school => {{
+      if (presentSchools.has(school)) hiddenSchools.add(school);
+    }});
+  }} catch (_err) {{
+    // Ignore malformed browser storage.
+  }}
+}}
+
+function persistHiddenSchools() {{
+  try {{
+    localStorage.setItem(SCHOOL_VISIBILITY_STORAGE_KEY, JSON.stringify(Array.from(hiddenSchools)));
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
 loadStoredSchoolColors();
+loadHiddenSchools();
+
+function isSchoolVisible(school) {{
+  return !hiddenSchools.has(school);
+}}
 
 // ── colour assignment helpers ────────────────────────────────────
 function getColors(mode) {{
-  if (mode === 'school') return DATA.map(d => SCHOOL_COLORS[d.school] || 'rgb(80,80,80)');
-  if (mode === 'college') return DATA.map(d => COLLEGE_COLORS[d.college] || 'rgb(80,80,80)');
-  if (mode === 'year') return DATA.map(d => yearColor(d.year_int));
-  if (mode === 'citations') return DATA.map(d => SCHOOL_COLORS[d.school] || 'rgb(180,180,180)');
+  if (mode === 'school') return DATA.map(d => isSchoolVisible(d.school) ? (SCHOOL_COLORS[d.school] || 'rgb(80,80,80)') : 'rgba(0,0,0,0)');
+  if (mode === 'college') return DATA.map(d => isSchoolVisible(d.school) ? (COLLEGE_COLORS[d.college] || 'rgb(80,80,80)') : 'rgba(0,0,0,0)');
+  if (mode === 'year') return DATA.map(d => isSchoolVisible(d.school) ? yearColor(d.year_int) : 'rgba(0,0,0,0)');
+  if (mode === 'citations') return DATA.map(d => isSchoolVisible(d.school) ? (SCHOOL_COLORS[d.school] || 'rgb(180,180,180)') : 'rgba(0,0,0,0)');
   return DATA.map(() => 'rgb(100,100,100)');
+}}
+
+function getMarkerSizes() {{
+  return DATA.map(d => isSchoolVisible(d.school) ? 4 : 0.01);
 }}
 
 function getLegendItems(mode) {{
@@ -612,7 +647,7 @@ const scatterTrace = {{
   x: xs, y: ys,
   mode: 'markers',
   type: 'scattergl',
-  marker: {{ size: 4, opacity: 0.5, color: getColors('school') }},
+  marker: {{ size: getMarkerSizes(), opacity: 0.5, color: getColors('school') }},
   text: texts,
   hovertemplate: '<b>%{{text}}</b><extra></extra>',
   hoverinfo: 'text',
@@ -646,47 +681,91 @@ function clearEdges() {{
   }}
 }}
 
-function drawEdges(pmid) {{
-  clearEdges();
+function isEdgeVisible(sourcePmid, targetPmid) {{
+  const sourceIdx = pmidIdx[sourcePmid];
+  const targetIdx = pmidIdx[targetPmid];
+  if (sourceIdx === undefined || targetIdx === undefined) return false;
+  return isSchoolVisible(DATA[sourceIdx].school) && isSchoolVisible(DATA[targetIdx].school);
+}}
+
+function buildSelectedEdgeTraces(pmid) {{
   const srcIdx = pmidIdx[pmid];
-  if (srcIdx === undefined) return;
-  const sx = DATA[srcIdx].x, sy = DATA[srcIdx].y;
+  if (srcIdx === undefined || !isSchoolVisible(DATA[srcIdx].school)) return [];
+
+  const sx = DATA[srcIdx].x;
+  const sy = DATA[srcIdx].y;
   const traces = [];
 
-  // outgoing (blue)
   const outs = citesOut[pmid] || [];
   if (outs.length) {{
     const ex = [], ey = [];
     outs.forEach(t => {{
       const ti = pmidIdx[t];
-      if (ti !== undefined) {{
+      if (ti !== undefined && isEdgeVisible(pmid, t)) {{
         ex.push(sx, DATA[ti].x, null);
         ey.push(sy, DATA[ti].y, null);
       }}
     }});
     if (ex.length) traces.push({{
       x: ex, y: ey, mode: 'lines', type: 'scatter',
-      line: {{ color: 'rgba(59,130,246,0.7)', width: 1.5 }},
+      line: {{ color: 'rgba(59,130,246,0.72)', width: 1.5 }},
       hoverinfo: 'skip', showlegend: false,
     }});
   }}
 
-  // incoming (red)
   const ins = citedBy[pmid] || [];
   if (ins.length) {{
     const ex = [], ey = [];
     ins.forEach(s => {{
       const si = pmidIdx[s];
-      if (si !== undefined) {{
+      if (si !== undefined && isEdgeVisible(s, pmid)) {{
         ex.push(DATA[si].x, sx, null);
         ey.push(DATA[si].y, sy, null);
       }}
     }});
     if (ex.length) traces.push({{
       x: ex, y: ey, mode: 'lines', type: 'scatter',
-      line: {{ color: 'rgba(239,68,68,0.7)', width: 1.5 }},
+      line: {{ color: 'rgba(239,68,68,0.72)', width: 1.5 }},
       hoverinfo: 'skip', showlegend: false,
     }});
+  }}
+
+  return traces;
+}}
+
+function drawSelectedEdges(pmid) {{
+  clearEdges();
+  const traces = buildSelectedEdgeTraces(pmid);
+  if (traces.length) {{
+    Plotly.addTraces('umap-plot', traces);
+    edgeTraceCount = traces.length;
+  }}
+}}
+
+function drawCitationNetwork(selectedPmid = null) {{
+  clearEdges();
+  const ex = [];
+  const ey = [];
+  EDGES.forEach(e => {{
+    const [source, target] = e;
+    if (!isEdgeVisible(source, target)) return;
+    const sourceIdx = pmidIdx[source];
+    const targetIdx = pmidIdx[target];
+    ex.push(DATA[sourceIdx].x, DATA[targetIdx].x, null);
+    ey.push(DATA[sourceIdx].y, DATA[targetIdx].y, null);
+  }});
+
+  const traces = [];
+  if (ex.length) {{
+    traces.push({{
+      x: ex, y: ey, mode: 'lines', type: 'scatter',
+      line: {{ color: 'rgba(71,85,105,0.14)', width: 1.0 }},
+      hoverinfo: 'skip', showlegend: false,
+    }});
+  }}
+
+  if (selectedPmid) {{
+    traces.push(...buildSelectedEdgeTraces(selectedPmid));
   }}
 
   if (traces.length) {{
@@ -709,9 +788,21 @@ function renderLegend(mode) {{
     const item = document.createElement('div');
     item.className = 'leg-item';
 
-    const swatch = document.createElement('span');
-    swatch.className = 'leg-swatch';
+    const swatch = document.createElement(mode === 'school' || mode === 'citations' ? 'button' : 'span');
+    if (mode === 'school' || mode === 'citations') {{
+      swatch.type = 'button';
+    }}
+    swatch.className = 'leg-swatch-btn';
+    if ((mode === 'school' || mode === 'citations') && !isSchoolVisible(label)) swatch.classList.add('off');
     swatch.style.background = color;
+    if (mode === 'school' || mode === 'citations') {{
+      swatch.dataset.schoolToggle = label;
+      swatch.title = isSchoolVisible(label) ? `Hide ${{label}}` : `Show ${{label}}`;
+      const check = document.createElement('span');
+      check.className = 'leg-swatch-check';
+      check.textContent = isSchoolVisible(label) ? '✓' : '';
+      swatch.appendChild(check);
+    }}
     item.appendChild(swatch);
 
     if (mode === 'school' || mode === 'citations') {{
@@ -744,9 +835,13 @@ const paletteResetAll = document.getElementById('palette-reset-all');
 
 function applyColourState() {{
   const mode = modeSelect.value;
-  clearEdges();
-  Plotly.restyle('umap-plot', {{ 'marker.color': [getColors(mode)] }}, [0]);
+  Plotly.restyle('umap-plot', {{ 'marker.color': [getColors(mode)], 'marker.size': [getMarkerSizes()] }}, [0]);
   renderLegend(mode);
+  if (mode === 'citations') {{
+    drawCitationNetwork(selectedPointIndex !== null ? DATA[selectedPointIndex].pmid : null);
+  }} else {{
+    clearEdges();
+  }}
   if (selectedPointIndex !== null) {{
     renderDetail(DATA[selectedPointIndex]);
   }}
@@ -797,6 +892,18 @@ function eventElementTarget(ev) {{
 }}
 
 legendEl.addEventListener('click', ev => {{
+  const toggle = eventElementTarget(ev)?.closest('[data-school-toggle]');
+  if (toggle) {{
+    const school = toggle.dataset.schoolToggle;
+    if (hiddenSchools.has(school)) {{
+      hiddenSchools.delete(school);
+    }} else {{
+      hiddenSchools.add(school);
+    }}
+    persistHiddenSchools();
+    applyColourState();
+    return;
+  }}
   const button = eventElementTarget(ev)?.closest('.leg-label-btn');
   if (!button) return;
   openPaletteForSchool(button.dataset.school);
@@ -891,10 +998,15 @@ plot.on('plotly_click', ev => {{
   if (!ev || !ev.points || !ev.points.length) return;
   const i = ev.points[0].pointIndex;
   const d = DATA[i];
+  if (!isSchoolVisible(d.school)) return;
   selectedPointIndex = i;
   setPanelHidden(false);
   renderDetail(d);
-  drawEdges(d.pmid);
+  if (modeSelect.value === 'citations') {{
+    drawCitationNetwork(d.pmid);
+  }} else {{
+    drawSelectedEdges(d.pmid);
+  }}
 }});
 
 plot.on('plotly_hover', ev => {{
