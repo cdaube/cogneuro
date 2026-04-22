@@ -578,6 +578,19 @@ a:hover{{text-decoration:underline}}
           </label>
         </div>
         <div class="control-block">
+          <div class="control-label">Filter</div>
+          <label class="toggle-row" for="imaging-only-toggle">
+            <span class="toggle-copy">
+              <span class="toggle-title">Imaging work only</span>
+              <span class="toggle-sub">Show only papers using imaging, electrophysiology, or brain stimulation techniques.</span>
+            </span>
+            <span class="switch">
+              <input id="imaging-only-toggle" type="checkbox" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+        </div>
+        <div class="control-block">
           <div class="control-label">Point Size</div>
           <label class="slider-row" for="point-size-slider">
             <input id="point-size-slider" type="range" min="1" max="12" step="1" value="4" />
@@ -633,16 +646,55 @@ const SCHOOL_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-school-visibility-v1';
 const COLLEGE_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-college-visibility-v1';
 const YEAR_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-year-visibility-v1';
 const CITATION_NETWORK_STORAGE_KEY = 'glasgow-explorer-citation-network-v1';
+const IMAGING_ONLY_STORAGE_KEY = 'glasgow-explorer-imaging-only-v1';
 const POINT_SIZE_STORAGE_KEY = 'glasgow-explorer-point-size-v1';
 const INTERACTION_MODE_STORAGE_KEY = 'glasgow-explorer-interaction-mode-v1';
+
+const IMAGING_KEYWORDS = [
+  'TMS','transcranial magnetic stimulation',
+  'tACS','transcranial alternating current stimulation',
+  'tDCS','transcranial direct current stimulation',
+  'tRNS','transcranial random noise stimulation',
+  'transcranial stimulation',
+  'fMRI','functional MRI','functional magnetic resonance imaging',
+  'magnetic resonance imaging','MRI','BOLD',
+  'DTI','diffusion tensor imaging','DWI','diffusion-weighted',
+  'tractography','resting-state','rs-fMRI',
+  'MRS','magnetic resonance spectroscopy','voxel-based morphometry','VBM',
+  'EEG','electroencephalograph','MEG','magnetoencephalograph',
+  'event-related potential','ERP',
+  'ECoG','electrocorticograph','iEEG','intracranial EEG',
+  'sEEG','stereoelectroencephalograph','LFP','local field potential',
+  'single-unit','multi-unit','multiunit','electrophysiology',
+  'spike sorting','patch clamp','tetrode','silicon probe',
+  'Neuropixels','microelectrode','neural recording',
+  'PET','positron emission tomography','SPECT','single-photon emission',
+  'radiotracer','radiolabeled','autoradiography',
+  'fNIRS','functional near-infrared','NIRS','near-infrared spectroscopy',
+  'optical imaging','intrinsic signal','intrinsic optical',
+  'calcium imaging','voltage imaging','widefield imaging',
+  'microscopy','two-photon','2-photon','multiphoton','confocal',
+  'fluorescence microscopy','light-sheet','STED','cryostat',
+  'immunohistochemistry','immunofluorescence','histology','Nissl',
+  'ultrasound','functional ultrasound','fUS','ultrasonography',
+  'CT scan','computed tomography','X-ray','radiograph','angiography',
+  'stereotaxic','stereotactic','cytoarchitect',
+];
+const IMAGING_REGEX = new RegExp(
+  '\\b(?:' + IMAGING_KEYWORDS.map(k => k.replace(/[.*+?^${{}}()|[\\]\\]/g, '\\$&')).join('|') + ')\\b',
+  'i'
+);
 let selectedPointIndex = null;
 let activePaletteSchool = null;
 const hiddenSchools = new Set();
 const hiddenColleges = new Set();
 const hiddenYears = new Set();
 let citationNetworkEnabled = false;
+let imagingOnlyEnabled = false;
 let pointSize = 4;
 let interactionMode = 'pan';
+
+const imagingMask = DATA.map(d => IMAGING_REGEX.test(d.abstract || ''));
 
 // pre-index
 const pmidIdx = {{}};
@@ -791,6 +843,22 @@ function persistCitationNetworkEnabled() {{
   }}
 }}
 
+function loadImagingOnlyEnabled() {{
+  try {{
+    imagingOnlyEnabled = localStorage.getItem(IMAGING_ONLY_STORAGE_KEY) === 'true';
+  }} catch (_err) {{
+    imagingOnlyEnabled = false;
+  }}
+}}
+
+function persistImagingOnlyEnabled() {{
+  try {{
+    localStorage.setItem(IMAGING_ONLY_STORAGE_KEY, imagingOnlyEnabled ? 'true' : 'false');
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
 function loadPointSize() {{
   try {{
     const raw = localStorage.getItem(POINT_SIZE_STORAGE_KEY);
@@ -832,6 +900,7 @@ loadHiddenSchools();
 loadHiddenColleges();
 loadHiddenYears();
 loadCitationNetworkEnabled();
+loadImagingOnlyEnabled();
 loadPointSize();
 loadInteractionMode();
 
@@ -852,8 +921,10 @@ function isYearVisible(year) {{
   return key ? !hiddenYears.has(key) : true;
 }}
 
-function isDatumVisible(d, mode) {{
+function isDatumVisible(d, mode, idx = null) {{
   if (!isSchoolVisible(d.school)) return false;
+  const index = idx ?? pmidIdx[d.pmid];
+  if (imagingOnlyEnabled && (index === undefined || !imagingMask[index])) return false;
   if (mode === 'college') return isCollegeVisible(d.college);
   if (mode === 'year') return isYearVisible(d.year_int);
   return true;
@@ -949,7 +1020,7 @@ function isEdgeVisible(sourcePmid, targetPmid) {{
 
 function buildSelectedEdgeTraces(pmid) {{
   const srcIdx = pmidIdx[pmid];
-  if (srcIdx === undefined || !isSchoolVisible(DATA[srcIdx].school)) return [];
+  if (srcIdx === undefined || !isDatumVisible(DATA[srcIdx], getCurrentMode(), srcIdx)) return [];
 
   const sx = DATA[srcIdx].x;
   const sy = DATA[srcIdx].y;
@@ -1126,7 +1197,9 @@ const citationNetworkToggle = document.getElementById('citation-network-toggle')
 const pointSizeSlider = document.getElementById('point-size-slider');
 const pointSizeValue = document.getElementById('point-size-value');
 const interactionModeSelect = document.getElementById('interaction-mode');
+const imagingOnlyToggle = document.getElementById('imaging-only-toggle');
 citationNetworkToggle.checked = citationNetworkEnabled;
+imagingOnlyToggle.checked = imagingOnlyEnabled;
 pointSizeSlider.value = String(pointSize);
 pointSizeValue.textContent = String(pointSize);
 interactionModeSelect.value = interactionMode;
@@ -1299,6 +1372,12 @@ projectionSelect.addEventListener('change', () => {{
 citationNetworkToggle.addEventListener('change', () => {{
   citationNetworkEnabled = citationNetworkToggle.checked;
   persistCitationNetworkEnabled();
+  applyColourState();
+}});
+
+imagingOnlyToggle.addEventListener('change', () => {{
+  imagingOnlyEnabled = imagingOnlyToggle.checked;
+  persistImagingOnlyEnabled();
   applyColourState();
 }});
 
