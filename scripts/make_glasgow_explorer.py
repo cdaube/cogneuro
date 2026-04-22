@@ -558,6 +558,13 @@ a:hover{{text-decoration:underline}}
           </select>
         </div>
         <div class="control-block">
+          <label class="control-label" for="interaction-mode">Interaction</label>
+          <select id="interaction-mode" class="btn">
+            <option value="pan">Move map</option>
+            <option value="zoom">Zoom box</option>
+          </select>
+        </div>
+        <div class="control-block">
           <div class="control-label">Citation Network</div>
           <label class="toggle-row" for="citation-network-toggle">
             <span class="toggle-copy">
@@ -627,6 +634,7 @@ const COLLEGE_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-college-visibility-v1';
 const YEAR_VISIBILITY_STORAGE_KEY = 'glasgow-explorer-year-visibility-v1';
 const CITATION_NETWORK_STORAGE_KEY = 'glasgow-explorer-citation-network-v1';
 const POINT_SIZE_STORAGE_KEY = 'glasgow-explorer-point-size-v1';
+const INTERACTION_MODE_STORAGE_KEY = 'glasgow-explorer-interaction-mode-v1';
 let selectedPointIndex = null;
 let activePaletteSchool = null;
 const hiddenSchools = new Set();
@@ -634,6 +642,7 @@ const hiddenColleges = new Set();
 const hiddenYears = new Set();
 let citationNetworkEnabled = false;
 let pointSize = 4;
+let interactionMode = 'pan';
 
 // pre-index
 const pmidIdx = {{}};
@@ -801,12 +810,30 @@ function persistPointSize() {{
   }}
 }}
 
+function loadInteractionMode() {{
+  try {{
+    const raw = localStorage.getItem(INTERACTION_MODE_STORAGE_KEY);
+    if (raw === 'pan' || raw === 'zoom') interactionMode = raw;
+  }} catch (_err) {{
+    interactionMode = 'pan';
+  }}
+}}
+
+function persistInteractionMode() {{
+  try {{
+    localStorage.setItem(INTERACTION_MODE_STORAGE_KEY, interactionMode);
+  }} catch (_err) {{
+    // Ignore browsers that block storage.
+  }}
+}}
+
 loadStoredSchoolColors();
 loadHiddenSchools();
 loadHiddenColleges();
 loadHiddenYears();
 loadCitationNetworkEnabled();
 loadPointSize();
+loadInteractionMode();
 
 function isSchoolVisible(school) {{
   return !hiddenSchools.has(school);
@@ -891,7 +918,7 @@ const layout = {{
   yaxis: {{ visible: false }},
   showlegend: false,
   hovermode: 'closest',
-  dragmode: 'pan',
+  dragmode: interactionMode,
 }};
 
 Plotly.newPlot('umap-plot', [scatterTrace], layout, {{
@@ -1098,9 +1125,11 @@ const paletteResetAll = document.getElementById('palette-reset-all');
 const citationNetworkToggle = document.getElementById('citation-network-toggle');
 const pointSizeSlider = document.getElementById('point-size-slider');
 const pointSizeValue = document.getElementById('point-size-value');
+const interactionModeSelect = document.getElementById('interaction-mode');
 citationNetworkToggle.checked = citationNetworkEnabled;
 pointSizeSlider.value = String(pointSize);
 pointSizeValue.textContent = String(pointSize);
+interactionModeSelect.value = interactionMode;
 
 function applyColourState() {{
   const mode = modeSelect.value;
@@ -1278,6 +1307,12 @@ pointSizeSlider.addEventListener('input', () => {{
   pointSizeValue.textContent = String(pointSize);
   persistPointSize();
   applyColourState();
+}});
+
+interactionModeSelect.addEventListener('change', () => {{
+  interactionMode = interactionModeSelect.value === 'zoom' ? 'zoom' : 'pan';
+  persistInteractionMode();
+  Plotly.relayout('umap-plot', {{ dragmode: interactionMode }});
 }});
 
 // ── panel toggling ───────────────────────────────────────────────
