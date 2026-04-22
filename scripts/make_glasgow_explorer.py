@@ -792,14 +792,18 @@ function closePalette() {{
   activePaletteSchool = null;
 }}
 
+function eventElementTarget(ev) {{
+  return ev.target instanceof Element ? ev.target : ev.target?.parentElement || null;
+}}
+
 legendEl.addEventListener('click', ev => {{
-  const button = ev.target.closest('.leg-label-btn');
+  const button = eventElementTarget(ev)?.closest('.leg-label-btn');
   if (!button) return;
   openPaletteForSchool(button.dataset.school);
 }});
 
 paletteGrid.addEventListener('click', ev => {{
-  const chip = ev.target.closest('.palette-chip');
+  const chip = eventElementTarget(ev)?.closest('.palette-chip');
   if (!chip || !activePaletteSchool) return;
   SCHOOL_COLORS[activePaletteSchool] = chip.dataset.color;
   persistSchoolColors();
